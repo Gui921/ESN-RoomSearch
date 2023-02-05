@@ -4,33 +4,39 @@ import sys
 from geopy.geocoders import Nominatim
 import time
 
+#Tempo inicial. No fim está um tempo final, para sabermos quanto tempo demorou o programa
 inicio = time.time()
 
+#Não percebo bem o que isto faz mas é para o calculo das zonas tendo em conta as coordenadas
 geolocator = Nominatim(user_agent="geoapiExercises")
 
 #EXEMPLO:
 # python roomSearch.py 400 Arroios 20
 input = (sys.argv)
+
 p = input[1] #preço
 z = input[2] #localização Ex.: Arroios, Parque_das_Nações, Alcântara
-d = input[3] #depth 0-20
+d = input[3] #depth 0-20 (quantidade de páginas observadas no inLife e UniPlaces)
 zona = z.replace('_', ' ')
 
-listaFinal = []
+listaFinal = [] #Lista final que depois será apresentada no Json
 
-nResults = 0
+nResults = 0 #número de resultados
 # ------------------------------------------------ inLife ---------------------------------------------------
 for i in range(int(d)):   
     if p != "":
+        #Faço um pedido get caso exista um preço máximo então usa o primeiro link, caso contrário o segundo
         response = requests.get("https://rent.inlifehousing.com/api/map/query?city=Lisboa&budgetMax="+ p + "&numTenants=1&bounds=eyJuZSI6eyJsYXQiOjM4Ljc1MDI5MDA0NjEzMzQxNSwibG5nIjotOS4xMTYwNzU4NTQ2MDcwMDR9LCJzdyI6eyJsYXQiOjM4LjcxMDk4Njc3NDUxNjQxNCwibG5nIjotOS4xNjE1NjYxMTk0OTk1ODJ9fQ%3D%3D&sort=recommended&page="+ str(i))
     else:
         response = requests.get("https://rent.inlifehousing.com/api/map/query?city=Lisboa&budgetMax=1600&numTenants=1&bounds=eyJuZSI6eyJsYXQiOjM4Ljc1MDI5MDA0NjEzMzQxNSwibG5nIjotOS4xMTYwNzU4NTQ2MDcwMDR9LCJzdyI6eyJsYXQiOjM4LjcxMDk4Njc3NDUxNjQxNCwibG5nIjotOS4xNjE1NjYxMTk0OTk1ODJ9fQ%3D%3D&sort=recommended&page=" + str(i))
 
     data = json.loads(response.text)
 
+    #filtragem para apenas os quartos
     lista = data["hits"]
 
     for dic in lista:
+        #verificação por zonas
         if dic["neighborhood"] == zona:
             nResults = nResults + 1
             test = {
@@ -43,16 +49,22 @@ for i in range(int(d)):
 # ------------------------------------------------ uniPlaces ---------------------------------------------------
 for i in range(int(d)):   
     if i == 1:
+        #Se for a primeira página usa o primeiro link, no resto usa o segundo
         response = requests.get("https://www.uniplaces.com/_next/data/search-29efaf2d1333640e4f90563df7c597293d8e3386/en/accommodation/lisbon.json?city=lisbon")
     else:
         response = requests.get("https://www.uniplaces.com/_next/data/search-29efaf2d1333640e4f90563df7c597293d8e3386/en/accommodation/lisbon.json?page="+ str(i) +"&city=lisbon")
 
     data = json.loads(response.text)
 
+    #filtragem para apenas os quartos
     lista = data["pageProps"]["offers"]["data"]
 
     for dic in lista:
+
+        #Obter o preço do quarto, no json os preços estão como 60000 = 600
         price = int(dic["attributes"]["accommodation_offer"]["price"]["amount"])/100
+
+        #filtragem por preço e zona
         if price <= int(p):
             try:
                 if dic["attributes"]["property"]["neighbourhood"]["name"] == zona:
@@ -67,6 +79,7 @@ for i in range(int(d)):
                 pass
 # ------------------------------------------------ SpotaHome ---------------------------------------------------
 
+#Corpo do pedido POST com a query no final
 myObj = {
   "operationName": "Markers",
   "variables": {
@@ -109,14 +122,19 @@ response = requests.post("https://www.spotahome.com/marketplace/graphql", json =
 data = json.loads(response.text)
 
 lista = data["data"]["search"]["markers"]
+
+#No Spotahome temos uma lista com mais de 4000 quartos. Dito isto é dificil percorrer tudo e calcular a zona com as coordenadas (demoraria demasiado tempo), como tal dividi a lista em 20. Por volta de 200 quartos
+#Este número pode ser aumentado mas vai demorar muito mais tempo
 shortList = lista[:len(lista) // 20]
 
 for x in shortList:
-    
+    #Primeiro filtramos por preço, e depois vamos buscar as coordenadas de cada quarto e vemos a zona
     if int(x["minimumPrice"]) <= int(p):
         location = x["coord"]
         Latitude = str(location[1])
         Longitude = str(location[0])
+
+        #geolocator.reverse(Latitude+","+Longitude) retorna uma morada completa, nr de porta, rua, bairro, etc. Querendo apenas o bairro de lisboa, notei que o bairro aparece sempre na 4ª posição a contar de trás
         bairro = str(geolocator.reverse(Latitude+","+Longitude)).split(",")[-4]
 
         if bairro.replace(" ","") == zona:
@@ -130,6 +148,8 @@ for x in shortList:
             nResults = nResults + 1
 
 # ------------------------------------------------ Livensa ---------------------------------------------------
+
+#No Livensa toda a informção é estática como tal, aqui vai esta javardice...
 
 preco = int(p)
 if zona == "Cidade Universitária" or zona =="Campo Grande" or zona == "Entre Campos":
@@ -249,9 +269,13 @@ if z == "Marquês de Pombal":
         listaFinal.append(test)
 
 #--------------------------------------------- FIM -----------------------------------------
+
+#Aqui passo a listaFinal para um dicionario que depois formato para ficar com o formato bonito do Json
 dic = {"results" : listaFinal}
 json_string = json.dumps(dic,indent=4)
 
+#Escrever para o ficheiro
+#ATENÇÃO: Caso não tenham o ficheiro criem o ficheiro antes ou assim, apenas consegui por isto a funcionar assim. Se conseguirem mudar, estejam à vontade!
 with open('results.json', 'w') as outfile:
     outfile.write(json_string)
 
